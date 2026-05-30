@@ -50,13 +50,7 @@ class Database:
         return cur.lastrowid
 
     def executescript(self, script: str) -> None:
-        if hasattr(self._conn, "executescript"):
-            self._conn.executescript(script)
-        else:
-            for stmt in script.split(";"):
-                stmt = stmt.strip()
-                if stmt:
-                    self._conn.execute(stmt)
+        self._conn.executescript(script)
         self._conn.commit()
 
     def query(self, sql: str, params: Iterable[Any] = ()) -> List[Tuple]:

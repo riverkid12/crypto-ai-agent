@@ -33,3 +33,11 @@ def test_context_manager_closes():
     # after exit, queries should fail
     with pytest.raises(Exception):
         db.query("SELECT 1")
+
+
+def test_executescript_runs_multiple_statements():
+    db = Database(":memory:")
+    db.executescript("CREATE TABLE a (id INTEGER); INSERT INTO a VALUES (1); INSERT INTO a VALUES (2);")
+    rows = db.query("SELECT id FROM a ORDER BY id")
+    assert rows == [(1,), (2,)]
+    db.close()

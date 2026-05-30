@@ -192,3 +192,14 @@ def test_libsql_hrana_error_response_raises():
     db = Database(LIBSQL_URL, auth_token="tok")
     with pytest.raises(Exception, match="syntax error"):
         db.execute("THIS IS NOT SQL")
+
+
+@responses.activate
+def test_database_executescript_via_libsql_calls_pipeline_per_statement():
+    """Database.executescript -> HranaConnection.executescript -> N POST requests."""
+    for _ in range(2):
+        responses.add(responses.POST, HTTP_URL, json=_ok_response(_empty_result()), status=200)
+    db = Database(LIBSQL_URL, auth_token="tok")
+    db.executescript("CREATE TABLE a (x INT); CREATE TABLE b (y INT);")
+    # 2 statements -> 2 HTTP requests
+    assert len(responses.calls) == 2
