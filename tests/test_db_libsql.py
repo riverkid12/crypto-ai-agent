@@ -203,3 +203,17 @@ def test_database_executescript_via_libsql_calls_pipeline_per_statement():
     db.executescript("CREATE TABLE a (x INT); CREATE TABLE b (y INT);")
     # 2 statements -> 2 HTTP requests
     assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_libsql_blob_with_missing_base64_returns_empty():
+    """Malformed blob value (no base64 field) should not crash — returns empty bytes."""
+    result = {
+        "cols": [{"name": "data"}],
+        "rows": [[{"type": "blob"}]],  # missing 'base64' key
+        "affected_row_count": 0,
+    }
+    responses.add(responses.POST, HTTP_URL, json=_ok_response(result), status=200)
+    db = Database(LIBSQL_URL, auth_token="tok")
+    row = db.query_one("SELECT data FROM t")
+    assert row == (b"",)

@@ -40,7 +40,8 @@ def _from_value(v: dict) -> Any:
         return v["value"]
     if t == "blob":
         import base64
-        return base64.b64decode(v["base64"])
+        b64 = v.get("base64", "")
+        return base64.b64decode(b64)
     raise ValueError(f"unknown libsql value type: {t}")
 
 
