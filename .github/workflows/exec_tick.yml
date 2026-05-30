@@ -1,9 +1,9 @@
 name: exec_tick
 
 on:
-  schedule:
-    # Every 5 minutes. GHA cron is best-effort and may drift 5-15 min.
-    - cron: '*/5 * * * *'
+  # Cron disabled: GHA US runners are blocked by Binance geo-restriction.
+  # Manual dispatch only until Oracle Cloud VM (Tokyo) takes over (see
+  # docs/MIGRATE_TO_ORACLE_VM.md).
   workflow_dispatch:
     inputs:
       strategy:
