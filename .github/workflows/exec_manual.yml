@@ -63,3 +63,4 @@ jobs:
           BINANCE_TESTNET: 'true'
           CHAT_NOTIFY_HUB_URL: ${{ secrets.CHAT_NOTIFY_HUB_URL }}
         run: python -m executor.tick
+
