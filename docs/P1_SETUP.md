@@ -31,21 +31,26 @@ P1 之後,系統會 24/7 在雲端跑(GitHub Actions cron),你本機不用一直
 2. 「Generate HMAC_SHA256 Key」→ 取得 API Key 和 Secret
 3. 預設你會有一些 testnet USDT / BTC;不夠的話點「Faucet」拿更多
 
-## 3. chat-notify-hub(可選但建議)
+## 3. Discord 通知(P1.5 新增,直連 Discord webhook 即可)
 
-你自己有的 `chat-notify-hub` 專案要先跑起來、有一個 HTTP endpoint 接收 POST。
-P1 的訊息格式是:
+`CHAT_NOTIFY_HUB_URL` 自動偵測 URL 格式:
+- 包含 `discord.com/api/webhooks` → 用 Discord embed 格式發送(✨ 漂亮的卡片)
+- 其他 → 假設是 chat-notify-hub HTTP API,發送 `{type, severity, payload}` JSON
 
-```
-POST /notify
-Content-Type: application/json
+**選一個用**:
 
-{"type": "fill", "severity": "info", "payload": {"symbol": "BTCUSDT", ...}}
-```
+**選 A. Discord webhook(推薦,5 分鐘搞定)**
+1. Discord 桌面版 → 你管理的任意 server → 挑/建一個收通知的頻道(例如 `#crypto-bot`)
+2. 頻道齒輪 → Integrations → Webhooks → New Webhook
+3. 取名(例如 `crypto-bot`)→ Copy Webhook URL → 長這樣:
+   `https://discord.com/api/webhooks/<id>/<token>`
+4. 把這個 URL 填到 GitHub Secret 的 `CHAT_NOTIFY_HUB_URL`,還有本機 `.env`
 
-chat-notify-hub 自己解析後丟到 Discord / Telegram。
+**選 B. 你自己的 chat-notify-hub**
+1. 把 `chat-notify-hub` 部署到可公開存取的 endpoint(例如 ngrok、Vercel、Railway)
+2. URL 填到 secret,系統發 `POST <url>` 帶 `{type, severity, payload}` JSON
 
-如果你 chat-notify-hub 還沒準備好,P1 也可以暫時用 Discord webhook 直接接(但 payload 格式 Discord 不認,只能收到 raw JSON;勉強夠用)。
+**選 C. 先不接**:`CHAT_NOTIFY_HUB_URL` 留空,系統照跑,只是沒通知。事後用 `python -m scripts.status` 看狀態(見下節)。
 
 ## 4. Push 本機 repo 上 GitHub
 
@@ -114,11 +119,30 @@ python -m scripts.seed_signal --symbol BTCUSDT --size 50
 - **等**:cron 每 5 分鐘觸發一次 `exec_tick`,你會在 Actions 頁看到自動跑的 workflow
 - **手動**:Actions → `exec_tick` → Run workflow,30 秒見效
 
-Workflow 跑完後檢查:
+Workflow 跑完後檢查(最方便的方式):
 
-1. Binance testnet 帳戶(https://testnet.binance.vision/en/my/dashboard)應該看到一筆 BTC 買單成交
-2. chat-notify-hub / Discord 應該收到 `type=fill` 訊息
-3. Turso DB:`turso db shell crypto-ai-agent "SELECT * FROM positions;"` 應該看到 BTCUSDT 持倉
+```bash
+cd C:\Projects\crypto-ai-agent && source venv/Scripts/activate
+python -m scripts.status
+```
+
+會看到 positions、recent orders、recent events、Binance 餘額,一頁全看完。
+
+Discord 也應該收到 `[INFO] fill` 卡片(如果你選了 Discord webhook)。
+
+(注意:testnet.binance.vision 沒有傳統的 dashboard UI,主要靠 API。我們的 `status.py` 就是替代品。)
+
+## 9b. status CLI(P1.5 新增)
+
+任何時候想看當前狀態:
+
+```bash
+python -m scripts.status                # 一次性
+python -m scripts.status --watch        # 每 10 秒自動 refresh
+python -m scripts.status --no-exchange  # 跳過 Binance API(離線或想看快點)
+```
+
+印出:positions / signals / orders / events / control flags / Binance balances / open orders。
 
 ## 10. 接下來:讓它跑 3 天
 
@@ -127,8 +151,8 @@ P1 的 exit criteria:**連續 3 天 cron 跑無 critical error**。所以接下�
 每天早上花 1 分鐘看:
 
 - Actions 頁 cron 都成功(綠 check)
-- chat-notify-hub 沒有 `severity=error` 的訊息
-- Binance testnet 帳戶餘額沒爆掉
+- Discord 沒有 `[ERROR]` 卡片(或 chat-notify-hub `severity=error` 訊息)
+- `python -m scripts.status` 看 positions / orders 沒爆,event log 沒一堆 error
 
 3 天後 → P2 開工(把 Cowork-side 真實策略推理接進來,取代 manual seed)。
 
