@@ -28,8 +28,13 @@ class DiscordWebhookNotifier:
         self._timeout = timeout
 
     def send(self, notification: Notification) -> bool:
+        # Pull portfolio snapshot out of payload (don't render as field)
+        payload = notification.payload
+        portfolio_md = payload.get("_portfolio_md")
+        event_payload = {k: v for k, v in payload.items() if k != "_portfolio_md"}
+
         fields = []
-        for k, v in list(notification.payload.items())[:_MAX_FIELDS]:
+        for k, v in list(event_payload.items())[:_MAX_FIELDS]:
             value_str = str(v)
             if len(value_str) > _MAX_FIELD_VALUE_LEN:
                 value_str = value_str[:_MAX_FIELD_VALUE_LEN - 3] + "..."
@@ -41,6 +46,9 @@ class DiscordWebhookNotifier:
             "fields": fields,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        if portfolio_md:
+            # Discord embed description max 4096 chars
+            embed["description"] = portfolio_md[:4096]
         body = {"embeds": [embed]}
         try:
             resp = requests.post(

@@ -97,3 +97,38 @@ def test_unknown_severity_falls_back_to_neutral():
     notifier = DiscordWebhookNotifier(WEBHOOK)
     ok = notifier.send(Notification(type="t", severity="totally_unknown", payload={}))
     assert ok is True
+
+
+@responses.activate
+def test_portfolio_md_renders_as_description_not_field():
+    """When payload has _portfolio_md, it goes to description, not fields."""
+    responses.add(responses.POST, WEBHOOK, status=204)
+    notifier = DiscordWebhookNotifier(WEBHOOK)
+    notifier.send(Notification(
+        type="fill", severity="info",
+        payload={
+            "symbol": "BTC", "qty": 0.001,
+            "_portfolio_md": "**目前持有**\n```\n| BTC | 0.001 |\n```",
+        },
+    ))
+    body = json.loads(responses.calls[0].request.body)
+    embed = body["embeds"][0]
+    assert embed["description"] == "**目前持有**\n```\n| BTC | 0.001 |\n```"
+    # _portfolio_md must NOT appear as a field
+    field_names = {f["name"] for f in embed["fields"]}
+    assert "_portfolio_md" not in field_names
+    assert field_names == {"symbol", "qty"}
+
+
+@responses.activate
+def test_no_portfolio_md_means_no_description():
+    """Without _portfolio_md, embed has no description key."""
+    responses.add(responses.POST, WEBHOOK, status=204)
+    notifier = DiscordWebhookNotifier(WEBHOOK)
+    notifier.send(Notification(
+        type="error", severity="error",
+        payload={"err": "boom"},
+    ))
+    body = json.loads(responses.calls[0].request.body)
+    embed = body["embeds"][0]
+    assert "description" not in embed or not embed.get("description")
