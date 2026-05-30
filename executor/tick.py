@@ -186,7 +186,25 @@ def _notify_safe(notifier, type: str, severity: str, payload: dict,
         pass
 
 
+def _load_env_file() -> None:
+    """Auto-load .env from repo root into os.environ (setdefault: never overrides).
+
+    Mirrors what scripts/*.py do. Safe in production (systemd EnvironmentFile
+    sets vars BEFORE Python starts, so setdefault sees them and skips).
+    """
+    from pathlib import Path
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, _, v = line.partition("=")
+            os.environ.setdefault(k.strip(), v.strip())
+
+
 def main() -> int:
+    _load_env_file()
     parser = argparse.ArgumentParser()
     parser.add_argument("--fake", action="store_true",
                         help="use FakeExchange + in-memory data for smoke test")
