@@ -5,13 +5,6 @@ from db.repos.events import Events
 from executor.circuit_breaker import CircuitBreaker
 
 
-@pytest.fixture(autouse=True)
-def _reset_api_failures():
-    # CircuitBreaker._api_failures 是 class state,測試間清掉
-    CircuitBreaker._api_failures = None
-    yield
-
-
 @pytest.fixture
 def cb(db):
     return CircuitBreaker(Control(db), Positions(db), Events(db))

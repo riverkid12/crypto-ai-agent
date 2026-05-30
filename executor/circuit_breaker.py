@@ -5,13 +5,11 @@ from db.repos.events import Events
 
 
 class CircuitBreaker:
-    # Class-level state (P0 single-process executor is fine; P1 move to events table)
-    _api_failures = None
-
     def __init__(self, control: Control, positions: Positions, events: Events):
         self._c = control
         self._p = positions
         self._e = events
+        self._api_failures: dict = {}
 
     def evaluate_new_entry(self, *, symbol: str, size_usdt: float,
                            universe: List[str], daily_realized_pnl: float) -> Optional[str]:
@@ -63,16 +61,11 @@ class CircuitBreaker:
         return None  # risk reduction always allowed (spec section 8, core principle #2)
 
     def note_api_failure(self, symbol: str) -> None:
-        if CircuitBreaker._api_failures is None:
-            CircuitBreaker._api_failures = {}
-        CircuitBreaker._api_failures[symbol] = CircuitBreaker._api_failures.get(symbol, 0) + 1
+        self._api_failures[symbol] = self._api_failures.get(symbol, 0) + 1
 
     def note_api_success(self, symbol: str) -> None:
-        if CircuitBreaker._api_failures is None:
-            return
-        CircuitBreaker._api_failures.pop(symbol, None)
+        self._api_failures.pop(symbol, None)
 
     def should_circuit_open(self, symbol: str) -> bool:
         threshold = self._c.get_int("api_fail_threshold", default=3)
-        count = (CircuitBreaker._api_failures or {}).get(symbol, 0)
-        return count >= threshold
+        return self._api_failures.get(symbol, 0) >= threshold
