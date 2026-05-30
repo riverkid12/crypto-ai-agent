@@ -1,0 +1,65 @@
+name: exec_manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to run'
+        required: true
+        default: 'tick'
+        type: choice
+        options:
+          - tick
+          - seed
+          - migrate
+      symbol:
+        description: 'Symbol for seed (e.g. BTCUSDT)'
+        required: false
+        default: 'BTCUSDT'
+      size_usdt:
+        description: 'Size USDT for seed (e.g. 50)'
+        required: false
+        default: '50'
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+
+      - name: Run migrate
+        if: inputs.action == 'migrate'
+        env:
+          TURSO_DB_URL: ${{ secrets.TURSO_DB_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: python -m scripts.migrate_turso
+
+      - name: Run seed
+        if: inputs.action == 'seed'
+        env:
+          TURSO_DB_URL: ${{ secrets.TURSO_DB_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python -m scripts.seed_signal \
+            --symbol "${{ inputs.symbol }}" \
+            --size "${{ inputs.size_usdt }}"
+
+      - name: Run tick
+        if: inputs.action == 'tick'
+        env:
+          DB_URL: ${{ secrets.TURSO_DB_URL }}
+          DB_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          BINANCE_TESTNET: 'true'
+          CHAT_NOTIFY_HUB_URL: ${{ secrets.CHAT_NOTIFY_HUB_URL }}
+        run: python -m executor.tick
