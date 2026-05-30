@@ -49,10 +49,18 @@ def run_tick(db: Database, exchange: Exchange,
             summary["blocked"] += 1
             continue
 
+        # 0b. per-symbol API circuit (skip if prior failures hit threshold)
+        if cb.should_circuit_open(sig.symbol):
+            events.log("blocked", {
+                "signal_id": sig.id, "symbol": sig.symbol,
+                "reason": f"circuit_open: api failures for {sig.symbol} >= threshold",
+            })
+            summary["blocked"] += 1
+            continue
+
         # 1. get current price
         try:
             current_price = exchange.get_price(sig.symbol)
-            cb.note_api_success(sig.symbol)
         except Exception as exc:
             cb.note_api_failure(sig.symbol)
             events.log("error", {
@@ -111,6 +119,7 @@ def run_tick(db: Database, exchange: Exchange,
         )
         positions.upsert(sig.symbol, qty=ex_order.fill_qty,
                          avg_entry=ex_order.fill_price, current_price=current_price)
+        cb.note_api_success(sig.symbol)
         signals.mark_triggered(sig.id)
         events.log("fill", {
             "signal_id": sig.id, "symbol": sig.symbol,

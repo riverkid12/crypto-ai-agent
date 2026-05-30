@@ -81,3 +81,22 @@ def test_failed_order_does_not_create_position(db):
     assert summary["triggered"] == 0
     assert summary["api_errors"] == 1
     assert Positions(db).get("BTC") is None
+
+
+def test_circuit_open_skips_symbol_after_threshold(db):
+    """3 consecutive place_order failures should trip the circuit; 4th signal blocked."""
+    _setup_strategy(db, universe=["BTC"])
+    for i in range(4):
+        Signals(db).insert(
+            strategy_id=1, symbol="BTC", side="long",
+            entry_price=None, stop_price=None, target_price=None,
+            size_usdt=100.0, expires_at=_future_iso(), reason=f"sig{i}",
+        )
+    ex = FakeExchange()
+    ex.set_price("BTC", 60000.0)
+    ex.fail_next_n_orders(3)  # first 3 place_orders return failed status
+    summary = run_tick(db, ex, strategy_name="trend_majors")
+    # 3 fails accumulate -> 4th signal hits circuit_open guard
+    assert summary["api_errors"] == 3
+    assert summary["blocked"] == 1
+    assert summary["triggered"] == 0
