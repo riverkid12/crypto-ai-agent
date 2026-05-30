@@ -1,0 +1,40 @@
+name: exec_tick
+
+on:
+  schedule:
+    # Every 5 minutes. GHA cron is best-effort and may drift 5-15 min.
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      strategy:
+        description: 'Strategy name (default: trend_majors)'
+        required: false
+        default: 'trend_majors'
+
+permissions:
+  contents: read
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: exec_tick
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tick
+        env:
+          DB_URL: ${{ secrets.TURSO_DB_URL }}
+          DB_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          BINANCE_TESTNET: 'true'
+          CHAT_NOTIFY_HUB_URL: ${{ secrets.CHAT_NOTIFY_HUB_URL }}
+        run: python -m executor.tick --strategy "${{ inputs.strategy || 'trend_majors' }}"
