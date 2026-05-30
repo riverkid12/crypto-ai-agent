@@ -168,12 +168,16 @@ def main() -> int:
     parser.add_argument("--strategy", default="trend_majors")
     args = parser.parse_args()
 
-    # Notifier from env (always optional)
+    # Notifier from env (always optional). Auto-detect Discord vs generic.
     notifier = None
     hub_url = os.environ.get("CHAT_NOTIFY_HUB_URL", "").strip()
     if hub_url:
-        from adapters.notify.chat_notify_hub import ChatNotifyHubNotifier
-        notifier = ChatNotifyHubNotifier(hub_url)
+        if "discord.com/api/webhooks" in hub_url or "discordapp.com/api/webhooks" in hub_url:
+            from adapters.notify.discord_webhook import DiscordWebhookNotifier
+            notifier = DiscordWebhookNotifier(hub_url)
+        else:
+            from adapters.notify.chat_notify_hub import ChatNotifyHubNotifier
+            notifier = ChatNotifyHubNotifier(hub_url)
 
     if args.fake:
         db = Database(":memory:")
