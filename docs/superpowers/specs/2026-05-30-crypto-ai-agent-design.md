@@ -218,11 +218,24 @@ CREATE TABLE control (
   value       TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
--- seed:
+-- seed(全部都是預設值,可隨時改 Turso):
+--   風控
 --   (kill_switch, false)
 --   (max_per_trade_usdt, 500)
 --   (max_daily_loss_usdt, 300)
 --   (max_open_positions, 3)
+--   (max_position_per_symbol, 1)
+--   (api_fail_threshold, 3)
+--   (slippage_max_pct, 0.01)
+--   signal
+--   (signal_default_expiry_hours, 24)
+--   時間 (TW)
+--   (cowork_decision_time_tw, 21:00)
+--   (bridge_run_time_tw, 21:05)
+--   (daily_report_time_tw, 23:55)
+--   (exec_tick_interval_minutes, 5)
+--   通知
+--   (notify_dedup_window_minutes, 10)
 
 -- 稽核 / debug log
 CREATE TABLE events (
@@ -238,38 +251,43 @@ CREATE INDEX idx_events_created ON events(created_at);
 
 | 時間 | 誰 | 做什麼 | 產出 |
 |---|---|---|---|
-| **08:00** | Cowork (Claude Desktop schedule) | 拉行情 → Claude 推理 → 寫 `decisions/<date>.json` 到 mounted folder | 本機 decisions/<date>.json |
-| **08:05** | 本機 `bridge/`(Claude Desktop schedule 鏈下一步)| 讀 decisions → UPSERT Turso signals → git push → 推 chat-notify-hub | Turso signals 表更新、Discord 摘要 |
-| **08:10 後**(laptop 可關)| — | 雲端接手 | — |
+| **21:00** | Cowork (Claude Desktop schedule) | 拉行情 → Claude 推理 → 寫 `decisions/<date>.json` 到 mounted folder | 本機 decisions/<date>.json |
+| **21:05** | 本機 `bridge/`(Claude Desktop schedule 鏈下一步)| 讀 decisions → UPSERT Turso signals → git push → 推 chat-notify-hub | Turso signals 表更新、Discord 摘要 |
+| **21:10 後**(laptop 可關)| — | 雲端接手 | — |
 | **每 5 分鐘** | GHA `exec_tick.yml` | 讀 control + active signals → 抓現價 → trigger 滿足者下單 → 寫回 | `orders`、`positions`、`events` 更新 |
-| **08:00 後即時** | GHA `exec_tick.yml`(同一 cron) | 觸發新 fill → 推 chat-notify-hub | Discord 通知 |
+| **21:00 後即時** | GHA `exec_tick.yml`(同一 cron) | 觸發新 fill → 推 chat-notify-hub | Discord 通知 |
 | **每 5 分鐘**(同上) | GHA `exec_tick.yml` | 監持倉,觸發 stop / target → 平倉 | 同上 |
 | **23:55** | GHA `exec_daily.yml` | 對帳、結算 pnl_daily、產 post_execution_<date>.md、推總結 | 報告 + Discord 摘要 |
 | **任何時候** | 本機 `_START_HERE\*.bat` | 看報告、改 strategy_config、緊急停止 | — |
 
-**laptop 開機需求**:每天約 08:00–08:10(~10 分鐘)為了 Claude Desktop schedule 觸發 Cowork + 本機 bridge。完成後可關機,其餘 23.5 小時雲端自跑。
+**laptop 開機需求**:每天約 21:00–21:10(~10 分鐘)為了 Claude Desktop schedule 觸發 Cowork + 本機 bridge。完成後可關機,其餘 23.5 小時雲端自跑。**時段可在 control 表調整**(改成早上、午休、深夜都行,但要對應改 Claude Desktop schedule 設定)。
+
+**所有時間都是預設值,可調**:`cowork_decision_time_tw`、`bridge_run_time_tw`、`daily_report_time_tw`、`exec_tick_interval_minutes` 都寫在 control 表,改 Turso 即生效(GHA 下次 tick 讀新值)。
 
 **邊界條件:**
-- 若使用者當天 08:00 沒開電腦,Cowork 不會跑、bridge 也不會跑,Turso signals 表保持上一份。GHA 仍會繼續執行未過期的 signals 與管理現有部位(包括停損)。
+- 若使用者當天決策時段沒開電腦,Cowork 不會跑、bridge 也不會跑,Turso signals 表保持上一份。GHA 仍會繼續執行未過期的 signals 與管理現有部位(包括停損)。
 - 若 GHA 連續失敗(API 限流、Turso 抖動),events 累計 ≥ 3 → 寫 circuit_open event + Discord 警報,該 tick 該 symbol skip。
 - 若 strategies.active=0,executor 不開新倉但仍管現有部位(不影響停損)。
 
 ## 8. 風控規則(executor 內寫死,不可被 strategy 覆寫)
 
-| 規則 | 預設 | 來源 |
-|---|---|---|
-| Kill switch | control.kill_switch=true → **擋所有新開倉**;**永遠允許風險縮減動作**(平倉、停損、止盈、cancel) | 手動或 daily loss 自動觸發 |
-| 單筆上限 | $500 USDT(control.max_per_trade_usdt) | 預設 |
-| 每日虧損上限 | 當日 realized P&L ≤ -$300 USDT(control.max_daily_loss_usdt)→ 自動 set kill_switch=true | 預設 |
-| 同時持倉上限 | 3(control.max_open_positions) | 預設 |
-| 單一 symbol 持倉上限 | 1 | 寫死 |
-| Symbol 白名單 | 只交易 `strategies.params_json.universe` 列出的 | 寫死 |
-| API 失敗熔斷 | 同 symbol 同 tick 失敗 3 次 → 跳過、寫 event、推警報 | 寫死 |
-| Slippage 上限 | 市價單預估價差 > 1% → 拒絕下單 | 寫死,可後續調整 |
+**所有規則都是預設值,改 Turso `control` 表即生效**(executor 每 tick 重讀)。下表「預設」=出廠值,「key」=control 表的 key。
+
+| 規則 | key | 預設 | 行為 |
+|---|---|---|---|
+| Kill switch | `kill_switch` | false | true → **擋所有新開倉**;**永遠允許風險縮減動作**(平倉、停損、止盈、cancel)|
+| 單筆上限 | `max_per_trade_usdt` | 500 | 超過直接拒下 |
+| 每日虧損上限 | `max_daily_loss_usdt` | 300 | 當日 realized P&L ≤ -此值 → 自動 set kill_switch=true |
+| 同時持倉上限 | `max_open_positions` | 3 | 已達上限不開新倉 |
+| 單一 symbol 持倉上限 | `max_position_per_symbol` | 1 | 不加碼 |
+| API 失敗熔斷 | `api_fail_threshold` | 3 | 同 symbol 同 tick 失敗達此數 → 跳過、寫 event、推警報 |
+| Slippage 上限 | `slippage_max_pct` | 0.01 (1%) | 市價單預估價差超過 → 拒絕下單 |
+| Symbol 白名單 | — | 來自 `strategies.params_json.universe` | 不在 universe 內的 symbol 一律拒下(不可繞過)|
 
 **核心原則**:
 1. 任何資金安全的判斷都在 `circuit_breaker.py`,不在 `strategy.py`。AI 寫策略可以亂寫,executor 是最後一道閘門。
 2. Kill switch 是「煞車」不是「方向盤拔掉」 — 任何 **降低風險** 的動作(平倉、停損、止盈、cancel pending)在 kill switch 開著時仍會執行;只有 **新增風險** 的動作(開新倉、加碼)被擋。這樣才能避免「按下緊急停止後反而沒人幫你停損」的死亡螺旋。
+3. **Symbol 白名單例外**:這條故意不放 control 表,只能透過修改 strategy 設定才能加新標的(改完要 Cowork 重跑寫 signal),避免「半夜被 social engineering 把白名單關掉直接打超出範圍的標的」。
 
 ## 9. 通知設計(透過 chat-notify-hub)
 
