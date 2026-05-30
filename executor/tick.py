@@ -46,6 +46,14 @@ def run_tick(db: Database, exchange: Exchange,
     universe = strategy.params.get("universe", [])
     summary = {"triggered": 0, "blocked": 0, "api_errors": 0}
 
+    # Build portfolio snapshot once per tick (used by all notifications below)
+    portfolio_md = ""
+    try:
+        from executor.portfolio_snapshot import gather_snapshot
+        portfolio_md = gather_snapshot(db, exchange)
+    except Exception:
+        portfolio_md = ""
+
     for sig in signals.list_active():
         # 0. universe pre-check
         if sig.symbol not in universe:
@@ -54,7 +62,7 @@ def run_tick(db: Database, exchange: Exchange,
                 "reason": f"universe: {sig.symbol} not in whitelist",
             }
             events.log("blocked", payload)
-            _notify_safe(notifier, "blocked", "info", payload)
+            _notify_safe(notifier, "blocked", "info", payload, portfolio_md=portfolio_md)
             summary["blocked"] += 1
             continue
 
@@ -65,7 +73,7 @@ def run_tick(db: Database, exchange: Exchange,
                 "reason": f"circuit_open: api failures for {sig.symbol} >= threshold",
             }
             events.log("blocked", payload)
-            _notify_safe(notifier, "blocked", "info", payload)
+            _notify_safe(notifier, "blocked", "info", payload, portfolio_md=portfolio_md)
             summary["blocked"] += 1
             continue
 
@@ -76,7 +84,7 @@ def run_tick(db: Database, exchange: Exchange,
             cb.note_api_failure(sig.symbol)
             payload = {"phase": "get_price", "symbol": sig.symbol, "err": str(exc)}
             events.log("error", payload)
-            _notify_safe(notifier, "error", "error", payload)
+            _notify_safe(notifier, "error", "error", payload, portfolio_md=portfolio_md)
             summary["api_errors"] += 1
             continue
 
@@ -95,9 +103,9 @@ def run_tick(db: Database, exchange: Exchange,
                 "signal_id": sig.id, "symbol": sig.symbol, "reason": reason,
             }
             events.log("blocked", payload)
-            _notify_safe(notifier, "blocked", "info", payload)
+            _notify_safe(notifier, "blocked", "info", payload, portfolio_md=portfolio_md)
             if "kill_switch" in reason.lower() or "daily_loss" in reason.lower():
-                _notify_safe(notifier, "kill_switch", "error", payload)
+                _notify_safe(notifier, "kill_switch", "error", payload, portfolio_md=portfolio_md)
             summary["blocked"] += 1
             continue
 
@@ -114,7 +122,7 @@ def run_tick(db: Database, exchange: Exchange,
             cb.note_api_failure(sig.symbol)
             payload = {"phase": "place_order", "symbol": sig.symbol, "err": str(exc)}
             events.log("error", payload)
-            _notify_safe(notifier, "error", "error", payload)
+            _notify_safe(notifier, "error", "error", payload, portfolio_md=portfolio_md)
             orders.mark_failed(order_id)
             summary["api_errors"] += 1
             continue
@@ -123,7 +131,7 @@ def run_tick(db: Database, exchange: Exchange,
             cb.note_api_failure(sig.symbol)
             payload = {"phase": "fill", "symbol": sig.symbol, "status": ex_order.status}
             events.log("error", payload)
-            _notify_safe(notifier, "error", "error", payload)
+            _notify_safe(notifier, "error", "error", payload, portfolio_md=portfolio_md)
             orders.mark_failed(order_id)
             summary["api_errors"] += 1
             continue
@@ -138,25 +146,42 @@ def run_tick(db: Database, exchange: Exchange,
                          avg_entry=ex_order.fill_price, current_price=current_price)
         signals.mark_triggered(sig.id)
         cb.note_api_success(sig.symbol)
+        # Refresh snapshot after fill so new position shows in notification
+        try:
+            from executor.portfolio_snapshot import gather_snapshot
+            fill_portfolio_md = gather_snapshot(db, exchange)
+        except Exception:
+            fill_portfolio_md = portfolio_md
         payload = {
             "signal_id": sig.id, "symbol": sig.symbol,
             "qty": ex_order.fill_qty, "price": ex_order.fill_price,
             "fee_usdt": ex_order.fee_usdt,
         }
         events.log("fill", payload)
-        _notify_safe(notifier, "fill", "info", payload)
+        _notify_safe(notifier, "fill", "info", payload, portfolio_md=fill_portfolio_md)
         summary["triggered"] += 1
 
     return summary
 
 
-def _notify_safe(notifier, type: str, severity: str, payload: dict) -> None:
-    """Best-effort notify. Swallow all exceptions so the tick always completes."""
+_PORTFOLIO_EVENT_TYPES = {"fill", "blocked", "kill_switch", "circuit_open"}
+
+
+def _notify_safe(notifier, type: str, severity: str, payload: dict,
+                 portfolio_md: str = "") -> None:
+    """Best-effort notify. Swallow all exceptions so the tick always completes.
+
+    For events in _PORTFOLIO_EVENT_TYPES, attach portfolio_md (if provided) so
+    notifier adapters can render it (Discord = embed description).
+    """
     if notifier is None:
         return
     try:
         from adapters.notify.base import Notification
-        notifier.send(Notification(type=type, severity=severity, payload=payload))
+        full_payload = dict(payload)
+        if portfolio_md and type in _PORTFOLIO_EVENT_TYPES:
+            full_payload["_portfolio_md"] = portfolio_md
+        notifier.send(Notification(type=type, severity=severity, payload=full_payload))
     except Exception:
         pass
 

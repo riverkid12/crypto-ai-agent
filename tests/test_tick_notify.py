@@ -92,3 +92,42 @@ def test_notifier_failure_doesnt_break_tick(db):
     summary = run_tick(db, ex, notifier=notifier, strategy_name="trend_majors")
     assert summary["triggered"] == 1
     assert len(notifier.sent) >= 1
+
+
+def test_fill_notification_includes_portfolio_md(db):
+    """fill events get _portfolio_md attached."""
+    _setup_strategy(db, universe=["BTCUSDT"])
+    Signals(db).insert(
+        strategy_id=1, symbol="BTCUSDT", side="long",
+        entry_price=None, stop_price=None, target_price=None,
+        size_usdt=100.0, expires_at=_future_iso(), reason="",
+    )
+    ex = FakeExchange()
+    ex.set_price("BTCUSDT", 60000.0)
+    notifier = FakeNotifier()
+    run_tick(db, ex, notifier=notifier, strategy_name="trend_majors")
+    fills = [n for n in notifier.sent if n.type == "fill"]
+    assert len(fills) == 1
+    # Snapshot must be attached
+    assert "_portfolio_md" in fills[0].payload
+    assert "BTCUSDT" in fills[0].payload["_portfolio_md"]
+
+
+def test_error_notification_does_not_include_portfolio_md(db):
+    """error events do NOT get portfolio (debug noise reduction)."""
+    _setup_strategy(db, universe=["BTC"])
+    Signals(db).insert(
+        strategy_id=1, symbol="BTC", side="long",
+        entry_price=None, stop_price=None, target_price=None,
+        size_usdt=100.0, expires_at=_future_iso(), reason="",
+    )
+    ex = FakeExchange()
+    ex.set_price("BTC", 60000.0)
+    ex.fail_next_n_orders(1)
+    notifier = FakeNotifier()
+    run_tick(db, ex, notifier=notifier, strategy_name="trend_majors")
+    errors = [n for n in notifier.sent if n.type == "error"]
+    assert len(errors) >= 1
+    # Snapshot must NOT be in any error payload
+    for e in errors:
+        assert "_portfolio_md" not in e.payload
