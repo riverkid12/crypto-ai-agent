@@ -57,3 +57,9 @@ class Orders:
             "UPDATE orders SET fill_qty = ?, fill_price = ?, fee_usdt = ?, status = ?, filled_at = ? WHERE id = ?",
             (fill_qty, fill_price, fee_usdt, status, _now(), order_id),
         )
+
+    def mark_failed(self, order_id: int) -> None:
+        self._db.execute(
+            "UPDATE orders SET status = 'failed' WHERE id = ?",
+            (order_id,),
+        )

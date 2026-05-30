@@ -100,6 +100,7 @@ def run_tick(db: Database, exchange: Exchange,
             events.log("error", {
                 "phase": "place_order", "symbol": sig.symbol, "err": str(exc),
             })
+            orders.mark_failed(order_id)
             summary["api_errors"] += 1
             continue
 
@@ -108,6 +109,7 @@ def run_tick(db: Database, exchange: Exchange,
             events.log("error", {
                 "phase": "fill", "symbol": sig.symbol, "status": ex_order.status,
             })
+            orders.mark_failed(order_id)
             summary["api_errors"] += 1
             continue
 

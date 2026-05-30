@@ -81,6 +81,10 @@ def test_failed_order_does_not_create_position(db):
     assert summary["triggered"] == 0
     assert summary["api_errors"] == 1
     assert Positions(db).get("BTC") is None
+    # New assertion: the orphan order is marked 'failed', not left as 'new'
+    rows = db.query("SELECT status FROM orders")
+    assert len(rows) == 1
+    assert rows[0][0] == "failed"
 
 
 def test_circuit_open_skips_symbol_after_threshold(db):

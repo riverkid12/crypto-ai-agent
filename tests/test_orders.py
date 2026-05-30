@@ -29,3 +29,15 @@ def test_update_fill_marks_filled(db):
     assert got.fill_price == 60100.0
     assert got.fee_usdt == 0.6
     assert got.filled_at is not None
+
+
+def test_mark_failed_sets_status(db):
+    o = Orders(db)
+    oid = o.insert(
+        signal_id=None, exchange_order_id=None,
+        symbol="BTC", side="buy", qty=0.01, price=None,
+        type="market", status="new",
+    )
+    o.mark_failed(oid)
+    got = o.get(oid)
+    assert got.status == "failed"
