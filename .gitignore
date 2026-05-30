@@ -1,0 +1,36 @@
+# secrets / env
+.env
+.env.*
+!.env.example
+profile.env
+*.pem
+*.key
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# state / logs / generated
+state/
+logs/
+pipeline_summary/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# decisions cache (live in DB; local files are scratch)
+decisions/*.json
+!decisions/.gitkeep
